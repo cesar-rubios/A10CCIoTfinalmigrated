@@ -1,0 +1,71 @@
+# Docker
+# Build and push an image to Azure Container Registry
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- main
+
+resources:
+- repo: self
+
+variables:
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: '19729197-edfd-492f-b288-560fe5022b20'
+  imageRepository: 'registrygroup7'
+  containerRegistry: 'simulatedregistryfinal.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+  # Agent VM image name
+  vmImageName: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+
+- stage: Deploy
+  displayName: Deploy to Azure Container Instances
+  dependsOn: Build
+  jobs:
+  - job: Deploy
+    displayName: Deploy
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: AzureCLI@2
+      displayName: Deploy container to ACI
+      inputs:
+        azureSubscription: 'group7registryconnection'    
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az container delete --resource-group final-group7 --name simulateddevice --yes || true
+
+          az container create \
+            --resource-group final-group7 \
+            --name simulateddevice \
+            --image $(containerRegistry)/$(imageRepository):$(tag) \
+            --registry-login-server $(containerRegistry) \
+            --registry-username $(ACR_USERNAME) \
+            --registry-password $(ACR_PASSWORD) \
+            --os-type Linux \
+            --cpu 1 \
+            --memory 1.5 \
+            --environment-variables S_CONNECTION="$(S_CONNECTION)" REPO_URL="$(REPO_URL)" \
+            --restart-policy Always
+
